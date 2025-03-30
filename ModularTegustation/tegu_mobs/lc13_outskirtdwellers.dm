@@ -435,13 +435,97 @@
 	var/flash_cooldown_time = 10 SECONDS
 	var/flash_range = 5 //Range that the flash hits
 
-/mob/living/simple_animal/hostile/kcorp/drone/proc/Flash()
+/mob/living/simple_animal/hostile/kcorp/drone/proc/Flash(mob/living/user)
+	var/flash_direction
+	flash_direction = get_cardinal_dir(get_turf(src), get_turf(target))
 	icon_state = "kcorp_drone_angry"
 	can_act = FALSE
-	SLEEP_CHECK_DEATH(2 SECONDS) //Enough to run away, but not easily
-	playsound(src, 'sound/weapons/flash.ogg', 100, TRUE)
+	var/list/cone_turfs = ConeHelper(get_turf(user), flash_direction)
+	for(var/list/turf_list in cone_turfs)
+		DoConeEffects(turf_list, user, TRUE)
+	if(do_after(user, 1.5 SECONDS, target = user))
+		for(var/list/turf_list in cone_turfs)
+			DoConeEffects(turf_list, user, FALSE)
+			playsound(src, 'sound/weapons/flash.ogg', 100, TRUE)
+		SLEEP_CHECK_DEATH(0.5 SECONDS)
+		icon_state = "kcorp_drone_idle"
+		can_act = TRUE
+	
+/mob/living/simple_animal/hostile/kcorp/drone/proc/ConeHelper(turf/starter_turf, dir_to_use, cone_levels = CAMERAFLASH_RANGE)
+	var/list/turfs_to_return = list()
+	var/turf/turf_to_use = starter_turf
+	var/turf/left_turf
+	var/turf/right_turf
+	var/right_dir
+	var/left_dir
+	switch(dir_to_use)
+		if(NORTH)
+			left_dir = WEST
+			right_dir = EAST
+		if(SOUTH)
+			left_dir = EAST
+			right_dir = WEST
+		if(EAST)
+			left_dir = NORTH
+			right_dir = SOUTH
+		if(WEST)
+			left_dir = SOUTH
+			right_dir = NORTH
 
-	for (var/mob/living/L in viewers(flash_range,src)) //The actual flashing
+	for(var/i in 1 to cone_levels)
+		if(i == 1)
+			continue
+		var/list/level_turfs = list()
+		turf_to_use = get_step(turf_to_use, dir_to_use)
+		level_turfs += turf_to_use
+		if(i != 1)
+			left_turf = get_step(turf_to_use, left_dir)
+			level_turfs += left_turf
+			right_turf = get_step(turf_to_use, right_dir)
+			level_turfs += right_turf
+			for(var/left_i in 1 to i -CalculateConeShape(i))
+				if(left_turf.density)
+					break
+				left_turf = get_step(left_turf, left_dir)
+				level_turfs += left_turf
+			for(var/right_i in 1 to i -CalculateConeShape(i))
+				if(right_turf.density)
+					break
+				right_turf = get_step(right_turf, right_dir)
+				level_turfs += right_turf
+		turfs_to_return += list(level_turfs)
+		if(i == cone_levels)
+			continue
+		if(turf_to_use.density)
+			break
+	return turfs_to_return
+
+	///This proc does obj, mob and turf cone effects on all targets in a list
+/mob/living/simple_animal/hostile/kcorp/drone/proc/DoConeEffects(list/target_turf_list, mob/user, telegraph)
+	for(var/target_turf in target_turf_list)
+		//if turf is no longer there
+		if(!target_turf)
+			continue
+		if(telegraph)
+			DoConeTurfEffects(target_turf, 1)
+		if(!telegraph)
+			DoConeTurfEffects(target_turf, 2)
+			if(isopenturf(target_turf))
+				var/turf/open/open_turf = target_turf
+				for(var/mob/living/movable_content in open_turf)
+					if(isliving(movable_content))
+						DoConeMobEffect(movable_content)
+
+	///This proc deterimines how the spell will affect turfs.
+/mob/living/simple_animal/hostile/kcorp/drone/proc/DoConeTurfEffects(turf/target_turf, type)
+	if(type == 1)
+		new /obj/effect/temp_visual/sparkles(target_turf)
+	if(type == 2)
+		new /obj/effect/temp_visual/dir_setting/ninja/phase(target_turf)
+
+	///This proc deterimines how the spell will affect mobs.
+/mob/living/simple_animal/hostile/kcorp/drone/proc/DoConeMobEffect(mob/living/target_mob)
+	if(ishuman(target_mob))
 		if(!ishuman(L))
 			continue
 		if(faction_check(L.faction, list("kcorp")))
@@ -452,9 +536,14 @@
 		L.dropItemToGround(held) //Drops everyone's weapons
 		to_chat(L, span_danger("[src] shines a blinding light!"))
 
-	SLEEP_CHECK_DEATH(1 SECONDS)
-	icon_state = "kcorp_drone_idle"
-	can_act = TRUE
+	///This proc adjusts the cones width depending on the level.
+/mob/living/simple_animal/hostile/kcorp/drone/proc/CalculateConeShape(current_level)
+	var/end_taper_start = round(CAMERAFLASH_RANGE * 0.8)
+	if(current_level > end_taper_start)
+		//someone more talented and probably come up with a better formula.
+		return (current_level % end_taper_start) * 2
+	else
+		return 2
 
 /mob/living/simple_animal/hostile/kcorp/drone/Move()
 	if (!can_act)
