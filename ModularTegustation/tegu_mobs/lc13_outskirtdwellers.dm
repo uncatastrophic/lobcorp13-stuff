@@ -405,7 +405,7 @@
 // K-Corp Drone
 /mob/living/simple_animal/hostile/kcorp/drone
 	name = "K-Corp survey drone"
-	desc = "Medium sized drone suspensed in the air, humming as he flies."
+	desc = "Medium sized drone suspensed in the air, humming as it flies."
 	icon = 'ModularTegustation/Teguicons/tegumobs.dmi'
 	icon_state = "kcorp_drone_idle"
 	icon_living = "kcorp_drone_idle"
@@ -425,7 +425,7 @@
 	turns_per_move = 3
 	butcher_difficulty = 3
 	butcher_results = list(/obj/item/ksyringe = 1, /obj/item/assembly/flash/handheld = 1)
-	death_message = "buzzes as he falls out of the air."
+	death_message = "buzzes as it falls out of the air."
 	density = FALSE
 	search_objects = 1
 	del_on_death = TRUE
@@ -433,25 +433,28 @@
 	var/can_act = TRUE //If flashing, turns FALSE so we don't attack/move
 	var/flash_cooldown
 	var/flash_cooldown_time = 10 SECONDS
-	var/flash_range = 5 //Range that the flash hits
+	var/flash_range = 7 //Range that the flash hits
 
 /mob/living/simple_animal/hostile/kcorp/drone/proc/Flash(mob/living/user)
 	var/flash_direction
-	flash_direction = get_cardinal_dir(get_turf(src), get_turf(target))
-	icon_state = "kcorp_drone_angry"
 	can_act = FALSE
-	var/list/cone_turfs = ConeHelper(get_turf(user), flash_direction)
+	if(get_turf(src) != get_turf(target))
+		flash_direction = get_cardinal_dir(get_turf(src), get_turf(target))
+	else
+		flash_direction = dir
+	icon_state = "kcorp_drone_angry"
+	SLEEP_CHECK_DEATH(0.3 SECONDS)
+	var/list/cone_turfs = ConeHelper(get_turf(src), flash_direction)
 	for(var/list/turf_list in cone_turfs)
 		DoConeEffects(turf_list, user, TRUE)
-	if(do_after(user, 1.5 SECONDS, target = user))
-		for(var/list/turf_list in cone_turfs)
-			DoConeEffects(turf_list, user, FALSE)
-			playsound(src, 'sound/weapons/flash.ogg', 100, TRUE)
-		SLEEP_CHECK_DEATH(0.5 SECONDS)
-		icon_state = "kcorp_drone_idle"
-		can_act = TRUE
-	
-/mob/living/simple_animal/hostile/kcorp/drone/proc/ConeHelper(turf/starter_turf, dir_to_use, cone_levels = CAMERAFLASH_RANGE)
+	SLEEP_CHECK_DEATH(0.5 SECONDS)
+	for(var/list/turf_list in cone_turfs)
+		DoConeEffects(turf_list, user, FALSE)
+		playsound(src, 'sound/weapons/flash.ogg', 100, TRUE)
+	icon_state = "kcorp_drone_idle"
+	can_act = TRUE
+
+/mob/living/simple_animal/hostile/kcorp/drone/proc/ConeHelper(turf/starter_turf, dir_to_use, cone_levels = flash_range)
 	var/list/turfs_to_return = list()
 	var/turf/turf_to_use = starter_turf
 	var/turf/left_turf
@@ -473,11 +476,13 @@
 			right_dir = NORTH
 
 	for(var/i in 1 to cone_levels)
-		if(i == 1)
-			continue
 		var/list/level_turfs = list()
 		turf_to_use = get_step(turf_to_use, dir_to_use)
 		level_turfs += turf_to_use
+		left_turf = get_step(turf_to_use, left_dir)
+		level_turfs += left_turf
+		right_turf = get_step(turf_to_use, right_dir)
+		level_turfs += right_turf
 		if(i != 1)
 			left_turf = get_step(turf_to_use, left_dir)
 			level_turfs += left_turf
@@ -521,24 +526,22 @@
 	if(type == 1)
 		new /obj/effect/temp_visual/sparkles(target_turf)
 	if(type == 2)
-		new /obj/effect/temp_visual/dir_setting/ninja/phase(target_turf)
+		new /obj/effect/temp_visual/impact_effect/energy(target_turf)
 
 	///This proc deterimines how the spell will affect mobs.
 /mob/living/simple_animal/hostile/kcorp/drone/proc/DoConeMobEffect(mob/living/target_mob)
 	if(ishuman(target_mob))
-		if(!ishuman(L))
-			continue
-		if(faction_check(L.faction, list("kcorp")))
-			continue
-		L.flash_act()
-		L.Paralyze(5 SECONDS) //you better dodge it
-		var/obj/item/held = L.get_active_held_item()
-		L.dropItemToGround(held) //Drops everyone's weapons
-		to_chat(L, span_danger("[src] shines a blinding light!"))
+		if(faction_check(target_mob.faction, list("kcorp")))
+			return
+		target_mob.flash_act()
+		target_mob.Paralyze(5 SECONDS) //you better dodge it
+		var/obj/item/held = target_mob.get_active_held_item()
+		target_mob.dropItemToGround(held) //Drops everyone's weapons
+		to_chat(target_mob, span_danger("[src] shines a blinding light!"))
 
 	///This proc adjusts the cones width depending on the level.
 /mob/living/simple_animal/hostile/kcorp/drone/proc/CalculateConeShape(current_level)
-	var/end_taper_start = round(CAMERAFLASH_RANGE * 0.8)
+	var/end_taper_start = round(flash_range * 0.8)
 	if(current_level > end_taper_start)
 		//someone more talented and probably come up with a better formula.
 		return (current_level % end_taper_start) * 2
@@ -556,9 +559,9 @@
 	. = ..()
 	if(flash_cooldown <= world.time)
 		flash_cooldown = world.time + flash_cooldown_time
-		Flash()
+		Flash(target)
 
-/mob/living/simple_animal/hostile/kcorp/drone/Aggro() //flash and push people, then run away |FLASH IS ANIMATED|
+/mob/living/simple_animal/hostile/kcorp/drone/Aggro() //flash people, then run away |FLASH IS ANIMATED|
 	..()
 	if(!is_type_in_typecache(target,wanted_objects))
 		retreat_distance = 3
